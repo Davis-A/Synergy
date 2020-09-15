@@ -144,9 +144,8 @@ alerts because everything is on fire."
 • *maint start*: enter maintenance mode. All alerts are now silenced! Also acks
 • *maint end*, *demaint*, *unmaint*, *stop*: leave maintenance mode. Alerts are noisy again!
 
-When leaving maintenance mode, it's possible you'll want to resolve all the
-alerts that happened while you were in it.  That's easy!  Use: *maint end
-/resolve* to resolve all current alerts before ending maintenance mode.
+When you leave maintenance mode, any alerts that happened during it, or even
+shortly before it, will be marked resolved.
 EOH
       ],
     },
@@ -502,7 +501,6 @@ sub handle_maint_end ($self, $event) {
   $event->mark_handled;
 
   my (@args) = split /\s+/, $event->text;
-  my $resolve = grep {; $_ eq '/resolve' } @args;
 
   my $f = $self->_vo_request(GET => '/maintenancemode')
     ->then(sub ($data) {
@@ -528,8 +526,6 @@ sub handle_maint_end ($self, $event) {
       return Future->done($timestamp, $instance_id);
     })
     ->then(sub ($timestamp, $instance_id) {
-      return Future->done($instance_id) unless $resolve;
-
       # We resolve before demainting because there's a race: if you exit
       # maint, VO immediately sends phone alerts for everything that's active,
       # even if they're going to be resolved in a quarter-second. That's
@@ -537,7 +533,7 @@ sub handle_maint_end ($self, $event) {
       # at which point there shouldn't be anything left to buzz.
       return $self->_resolve_incidents($event, {
         type => 'all',
-        since => $timestamp,
+        since => $timestamp - 600,
         whose => 'all'
       })->transform(done => sub { $instance_id });
     })
