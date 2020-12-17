@@ -66,6 +66,12 @@ has digitalocean_api_token => (
   required => 1,
 );
 
+has inabox_datacentres => (
+  is => 'ro',
+  isa => 'ArrayRef',
+  required => 1,
+);
+
 has inabox_versions => (
   is => 'ro',
   isa => 'ArrayRef',
@@ -630,10 +636,13 @@ __PACKAGE__->add_preference(
 __PACKAGE__->add_preference(
   name      => 'datacentre',
   validator => sub ($self, $value, @) {
+    my %known = map {; $_ => 1 } $self->inabox_datacentres->@*;
+
     $value = lc $value;
 
-    unless ($value =~ /\A[a-z0-9]+\z/) {
-      return (undef, "Hmm, $value doesn't seem like a valid datacentre name.");
+    unless ($known{$value}) {
+      my $datacentres = join q{, }, sort keys %known;
+      return (undef, "unknown datacentre $value; known datacentres are: $datacentres");
     }
 
     return $value;
