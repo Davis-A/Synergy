@@ -26,6 +26,7 @@ my $result = Synergy::Tester->testergize({
       box_domain             => 'fm.local',
       vpn_config_file        => '',
       digitalocean_api_token => '1234',
+      inabox_default_version => 'jessie',
     },
   },
   default_from => 'alice',
