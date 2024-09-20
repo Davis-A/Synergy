@@ -356,31 +356,56 @@ sub _send_rich_text ($self, $channel, $rich) {
 }
 
 sub send_file ($self, $channel, $filename, $content) {
-  my $post_args = [ # arrayref for form data
-    channels => [$channel],
-    filename => $filename,
-    content  => $content,
-  ];
+  # Sending a file is a three step process:
+  # 1. GET an upload url
+  # 2. POST the file to the upload url
+  # 3. POST to Finalise the upload
+  use Data::Printer;
 
-  my $http_future = Future->wrap($self->hub->http_client->POST(
-    URI->new($self->_api_url('files.upload')),
-    $post_args,
+  my $length = length(Encode::encode('UTF-8', $content));
+
+  # step 1:
+  my $u = URI->new($self->_api_url('files.getUploadURLExternal'));
+  $u->query_param(filename => $filename);
+  $u->query_param(length => $length);
+
+  my $res = $self->hub->http_client->GET(
+    $u,
     content_type => 'application/x-www-form-urlencoded',
     headers => [
       $self->_api_auth_header,
     ],
-  ));
+  )->await->result;
 
-  my $f = $self->loop->new_future;
-  $http_future->on_done(sub ($http_res) {
-    my $res = decode_json($http_res->decoded_content(charset => undef));
-    $f->done({
-      type => 'slack',
-      transport_data => $res
-    });
+  my $json = decode_json($res->content);
+  die "Could get upload url to send file to slack: $json->{error}"
+    unless $json->{ok};
+
+  $res = $self->hub->http_client->POST(
+    $json->{upload_url},
+    $content,
+    content_type => 'application/x-www-form-urlencoded',
+  )->await->result;
+
+  die "Could not send file to slack: " . $res->content
+    unless $res->is_success;
+
+  # step 3:
+  my $json_args = encode_json({
+    channel_id => $channel,
+    files      => [{ id => $json->{file_id} }],
   });
 
-  return $f;
+  # the docs say application/x-www-form-urlencoded or application/json but the former does not work
+  $res = $self->hub->http_client->POST(
+    URI->new($self->_api_url('files.completeUploadExternal')),
+    $json_args,
+    content_type => 'application/json; charset=utf-8',
+    headers => [
+      $self->_api_auth_header,
+    ],
+  )->await->result;
+  return;
 }
 
 sub _api_url ($self, $method) {
